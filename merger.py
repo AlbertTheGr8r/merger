@@ -13,7 +13,7 @@ import numpy as np
 import argparse
 import os
 import re
-from PIL import Image
+from PIL import Image, ImageOps
 from natsort import natsorted
 
 
@@ -101,14 +101,45 @@ def group_images(images, image_ext):
     return grouped_images
 
 
+def pad_image(image, max_heights, max_widths):
+    image_height = image.height
+    image_width = image.width
+    image_name_no_ext = os.path.basename(image.filename).replace("." + image.format, "")
+    coord_y = int(image_name_no_ext.split("_")[-2])
+    target_height = max_heights[coord_y]
+    target_width = max_widths[coord_y]
+
+    padding_height = target_height - image_height
+    padding_width = target_width - image_width
+    pad_top = padding_height // 2
+    pad_bottom = padding_height - pad_top
+    pad_left = padding_width // 2
+    pad_right = padding_width - pad_left
+    return ImageOps.expand(image, (pad_left, pad_top, pad_right, pad_bottom), fill="black")
+
+
 def merge(grouped_images):
     horizontal_parts = []
-    for group in grouped_images:
+    max_heights = [0] * len(grouped_images)
+    max_widths = [0] * len(grouped_images)
+
+    for i, group in enumerate(grouped_images):
         images = [Image.open(image) for image in group]
-        horizontal_part = np.hstack((np.asarray(image) for image in images))
+        for image in images:
+            image_height = image.height
+            image_width = image.width
+            image_name_no_ext = os.path.basename(image.filename).replace("." + image.format, "")
+            coord_y = int(image_name_no_ext.split("_")[-2])
+            max_heights[coord_y] = max(max_heights[coord_y], image_height)
+            max_widths[i] = max(max_widths[i], image_width)
+
+    for i, group in enumerate(grouped_images):
+        images = [Image.open(image) for image in group]
+        padded_images = [pad_image(image, max_heights, max_widths) for image in images]
+        horizontal_part = np.hstack([np.asarray(image) for image in padded_images])
         horizontal_parts.append(Image.fromarray(horizontal_part))
 
-    full_image = np.vstack((np.asarray(image) for image in horizontal_parts))
+    full_image = np.vstack([np.asarray(image) for image in horizontal_parts])
     full_image = Image.fromarray(full_image)
 
     return full_image
